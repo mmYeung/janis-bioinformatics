@@ -1,7 +1,7 @@
+import os
 from datetime import datetime
 from typing import List
 
-from janis_core import CaptureType, Array
 from janis_core import (
     ToolOutput,
     ToolInput,
@@ -13,7 +13,11 @@ from janis_core import (
     ToolMetadata,
     WildcardSelector,
     get_value_for_hints_and_ordered_resource_tuple,
+    InputSelector,
+    CaptureType,
+    Array,
 )
+from janis_core.tool.test_classes import TTestCase
 
 from janis_bioinformatics.data_types import FastqGzPair
 from janis_bioinformatics.tools import BioinformaticsTool
@@ -32,7 +36,7 @@ MEM_TUPLE = [
     )
 ]
 
-CPU_TUPLE = [
+CORES_TUPLE = [
     (
         CaptureType.key(),
         {
@@ -63,8 +67,8 @@ class CutAdaptBase_2(BioinformaticsTool):
     def inputs(self) -> List[ToolInput]:
         import uuid
 
-        fastq_uuid = str(uuid.uuid1())
         return [
+            ToolInput("outputPrefix", String(), doc="Used for naming purposes"),
             ToolInput("fastq", FastqGzPair, position=5),
             ToolInput(
                 "adapter",
@@ -77,7 +81,11 @@ class CutAdaptBase_2(BioinformaticsTool):
             ),
             ToolInput(
                 "outputFilename",
-                Filename(suffix="-R1", extension=".fastq.gz"),
+                Filename(
+                    prefix=InputSelector("outputPrefix"),
+                    suffix="R1",
+                    extension=".fastq.gz",
+                ),
                 prefix="-o",
                 doc="Write trimmed reads to FILE. FASTQ or FASTA format is chosen depending on input. "
                 "The summary report is sent to standard output. Use '{name}' in FILE to demultiplex "
@@ -85,7 +93,11 @@ class CutAdaptBase_2(BioinformaticsTool):
             ),
             ToolInput(
                 "secondReadFile",
-                Filename(suffix="-R2", extension=".fastq.gz"),
+                Filename(
+                    prefix=InputSelector("outputPrefix"),
+                    suffix="R2",
+                    extension=".fastq.gz",
+                ),
                 prefix="-p",
                 doc="Write second read in a pair to FILE.",
             ),
@@ -93,7 +105,16 @@ class CutAdaptBase_2(BioinformaticsTool):
         ]
 
     def outputs(self) -> List[ToolOutput]:
-        return [ToolOutput("out", FastqGzPair, glob=WildcardSelector("*.fastq.gz"))]
+        return [
+            ToolOutput(
+                "out",
+                FastqGzPair,
+                selector=[
+                    InputSelector("outputPrefix") + "-R1.fastq.gz",
+                    InputSelector("outputPrefix") + "-R2.fastq.gz",
+                ],
+            )
+        ]
 
     def memory(self, hints):
         val = get_value_for_hints_and_ordered_resource_tuple(hints, MEM_TUPLE)
@@ -102,7 +123,7 @@ class CutAdaptBase_2(BioinformaticsTool):
         return 4
 
     def cpus(self, hints):
-        val = get_value_for_hints_and_ordered_resource_tuple(hints, CPU_TUPLE)
+        val = get_value_for_hints_and_ordered_resource_tuple(hints, CORES_TUPLE)
         if val:
             return val
         return 5
@@ -440,3 +461,38 @@ class CutAdaptBase_2(BioinformaticsTool):
             documentationUrl="https://cutadapt.readthedocs.io/en/stable/",
             documentation='cutadapt version 2.4\nCopyright (C) 2010-2019 Marcel Martin <marcel.martin@scilifelab.se>\ncutadapt removes adapter sequences from high-throughput sequencing reads.\nUsage:\n    cutadapt -a ADAPTER [options] [-o output.fastq] input.fastq\nFor paired-end reads:\n    cutadapt -a ADAPT1 -A ADAPT2 [options] -o out1.fastq -p out2.fastq in1.fastq in2.fastq\nReplace "ADAPTER" with the actual sequence of your 3\' adapter. IUPAC wildcard\ncharacters are supported. The reverse complement is *not* automatically\nsearched. All reads from input.fastq will be written to output.fastq with the\nadapter sequence removed. Adapter matching is error-tolerant. Multiple adapter\nsequences can be given (use further -a options), but only the best-matching\nadapter will be removed.\nInput may also be in FASTA format. Compressed input and output is supported and\nauto-detected from the file name (.gz, .xz, .bz2). Use the file name \'-\' for\nstandard input/output. Without the -o option, output is sent to standard output.\nCitation:\nMarcel Martin. Cutadapt removes adapter sequences from high-throughput\nsequencing reads. EMBnet.Journal, 17(1):10-12, May 2011.\nhttp://dx.doi.org/10.14806/ej.17.1.200\nRun "cutadapt - -help" to see all command-line options.\nSee https://cutadapt.readthedocs.io/ for full documentation.\n',
         )
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "fastq": [
+                        f"{remote_dir}/NA12878-BRCA1_R1.fastq.gz",
+                        f"{remote_dir}/NA12878-BRCA1_R2.fastq.gz",
+                    ],
+                    "qualityCutoff": 15,
+                    "minimumLength": 50,
+                    "outputPrefix": "output",
+                },
+                output=FastqGzPair.basic_test(
+                    "out",
+                    1090240,
+                    1163374,
+                ),
+            ),
+            TTestCase(
+                name="minimal",
+                input={
+                    "fastq": [
+                        f"{remote_dir}/NA12878-BRCA1_R1.fastq.gz",
+                        f"{remote_dir}/NA12878-BRCA1_R2.fastq.gz",
+                    ],
+                    "qualityCutoff": 15,
+                    "minimumLength": 50,
+                    "outputPrefix": "output",
+                },
+                output=self.minimal_test(),
+            ),
+        ]

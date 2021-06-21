@@ -1,3 +1,4 @@
+from datetime import datetime
 from janis_core import WorkflowBuilder, WorkflowMetadata
 
 # data types
@@ -23,7 +24,12 @@ class AnnotateDepthOfCoverage_0_1_0(BioinformaticsWorkflow):
         return "Peter MacCallum Cancer Centre"
 
     def bind_metadata(self):
-        return WorkflowMetadata(version="v0.1.0", contributors=["Jiaan Yu"])
+        return WorkflowMetadata(
+            version="v0.1.0",
+            contributors=["Jiaan Yu"],
+            dateCreated=datetime(2020, 4, 28),
+            dateUpdated=datetime(2020, 10, 7),
+        )
 
     def constructor(self):
 
@@ -56,4 +62,10 @@ class AnnotateDepthOfCoverage_0_1_0(BioinformaticsWorkflow):
 
         self.output(
             "out", source=self.addsymtodepthofcoverage.out, output_name=self.sample_name
+        )
+
+        self.output(
+            "out_sample_summary",
+            source=self.gatk3depthofcoverage.sampleSummary,
+            output_name=self.sample_name,
         )

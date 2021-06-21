@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-
+from datetime import datetime
 from janis_core import (
     ToolInput,
     Int,
@@ -15,6 +15,7 @@ from janis_core import (
     CpuSelector,
     Array,
     StringFormatter,
+    ToolMetadata,
 )
 from janis_core import get_value_for_hints_and_ordered_resource_tuple
 
@@ -178,6 +179,13 @@ class BwaMem_SamToolsView(BioinformaticsTool):
     def friendly_name(self) -> str:
         return "Bwa mem + Samtools View"
 
+    def bind_metadata(self):
+        return ToolMetadata(
+            contributors=["Michael Franklin"],
+            dateCreated=datetime(2019, 5, 10),
+            dateUpdated=datetime(2020, 7, 14),
+        )
+
     bwa_additional_inputs = [
         ToolInput(
             "minimumSeedLength",
@@ -187,6 +195,26 @@ class BwaMem_SamToolsView(BioinformaticsTool):
             shell_quote=False,
             doc="Matches shorter than INT will be missed. The alignment speed is usually "
             "insensitive to this value unless it significantly deviates 20. (Default: 19)",
+        ),
+        ToolInput(
+            "batchSize",
+            Int(optional=True),
+            prefix="-K",
+            position=2,
+            shell_quote=False,
+            doc="Process INT input bases in each batch regardless of the number of threads in use [10000000*nThreads]. "
+            "By default, the batch size is proportional to the number of threads in use. Because the inferred "
+            "insert size distribution slightly depends on the batch size, using different number of threads "
+            "may produce different output. Specifying this option helps reproducibility.",
+        ),
+        ToolInput(
+            "useSoftClippingForSupplementaryAlignments",
+            Boolean(optional=True),
+            prefix="-Y",
+            position=2,
+            shell_quote=False,
+            doc="Use soft clipping CIGAR operation for supplementary alignments. By default, BWA-MEM uses soft "
+            "clipping for the primary alignment and hard clipping for supplementary alignments.",
         ),
         ToolInput(
             "bandwidth",

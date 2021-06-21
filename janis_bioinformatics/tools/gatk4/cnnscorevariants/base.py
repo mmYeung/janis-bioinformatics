@@ -40,7 +40,7 @@ class GatkCNNScoreVariantsBase(Gatk4ToolBase, ABC):
             ToolInput(
                 tag="outputFilename",
                 input_type=Filename(
-                    prefix=InputSelector("variant"),
+                    prefix=InputSelector("variant", remove_file_extension=True),
                     suffix=".scored",
                     extension=".vcf.gz",
                 ),
@@ -724,8 +724,8 @@ class GatkCNNScoreVariantsBase(Gatk4ToolBase, ABC):
     def metadata(self):
         return ToolMetadata(
             contributors=["Michael Franklin"],
-            dateCreated=datetime.fromisoformat("2020-05-18T15:05:45.938907"),
-            dateUpdated=datetime.fromisoformat("2020-05-18T15:05:45.938908"),
+            dateCreated=datetime(2020, 5, 18),
+            dateUpdated=datetime(2020, 5, 18),
             documentation="""USAGE: CNNScoreVariants [arguments]
             
 Annotate a VCF with scores from a Convolutional Neural Network (CNN).The CNN determines a Log Odds Score for each

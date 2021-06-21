@@ -1,5 +1,8 @@
+import os
 from abc import ABC
 from typing import Dict, Any
+
+from janis_core.tool.test_classes import TTestCase
 
 from janis_bioinformatics.data_types import BamBai, Bed, FastaWithDict, VcfTabix
 from janis_core import (
@@ -22,6 +25,7 @@ from janis_core import (
 from janis_unix import TarFileGz, TextFile
 
 from ..gatk4toolbase import Gatk4ToolBase
+from ... import BioinformaticsTool
 
 CORES_TUPLE = [
     # (CaptureType.key(), {
@@ -61,6 +65,7 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
 
     def inputs(self):
         return [
+            *super().inputs(),
             ToolInput(
                 tag="tumorBams",
                 input_type=Array(BamBai),
@@ -82,8 +87,14 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
                 doc="(--normal-sample, if) May be URL-encoded as output by GetSampleName with",
             ),
             ToolInput(
+                "outputPrefix",
+                String(optional=True),
+                doc="Used as a prefix for the outputFilename if not specified, with format: {outputPrefix}.vcf.gz",
+                default="generated",
+            ),
+            ToolInput(
                 "outputFilename",
-                Filename(extension=".vcf.gz"),
+                Filename(prefix=InputSelector("outputPrefix"), extension=".vcf.gz"),
                 position=20,
                 prefix="-O",
             ),
@@ -92,6 +103,13 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
                 input_type=FastaWithDict(),
                 prefix="--reference",
                 doc="(-R) Reference sequence file Required.",
+            ),
+            ToolInput(
+                tag="outputBamName",
+                # This is not a FileName because otherwise we cant make this optional
+                input_type=String(optional=True),
+                prefix="-bamout",
+                doc="File to which assembled haplotypes should be written",
             ),
             ToolInput(
                 tag="activityProfileOut",
@@ -539,12 +557,6 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
                 doc=" Number of additional bases of context to include around each assembly region  Default value: 100. ",
             ),
             ToolInput(
-                tag="bamout",
-                input_type=String(optional=True),
-                prefix="-bamout",
-                doc="(--bam-output) File to which assembled haplotypes should be written Default value: null.",
-            ),
-            ToolInput(
                 tag="bamWriterType",
                 input_type=String(optional=True),
                 prefix="--bam-writer-type",
@@ -878,6 +890,13 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
                 glob=InputSelector("f1r2TarGz_outputFilename"),
                 doc="To determine type",
             ),
+            ToolOutput(
+                "bam",
+                BamBai(optional=True),
+                glob=InputSelector("outputBamName"),
+                doc="File to which assembled haplotypes should be written",
+                secondaries_present_as={".bai": "^.bai"},
+            ),
         ]
 
     def cpus(self, hints: Dict[str, Any]):
@@ -906,3 +925,50 @@ class Gatk4Mutect2Base_4_1(Gatk4ToolBase, ABC):
             documentationUrl="https://software.broadinstitute.org/gatk/documentation/tooldocs/4.0.10.0/org_broadinstitute_hellbender_tools_walkers_mutect_Mutect2.php",
             documentation="USAGE: Mutect2 [arguments]\nCall somatic SNVs and indels via local assembly of haplotypes\nVersion:4.1.2.0\n",
         )
+
+    def tests(self):
+        parent_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics"
+        germline_data = f"{parent_dir}/wgsgermline_data"
+        somatic_data = f"{parent_dir}/wgssomatic_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "javaOptions": ["-Xmx12G"],
+                    "tumorBams": [
+                        f"{somatic_data}/NA12878-NA24385-mixture.markduped.recalibrated.bam"
+                    ],
+                    "normalBams": [
+                        f"{somatic_data}/NA24385-BRCA1.markduped.recalibrated.bam"
+                    ],
+                    "normalSample": "NA24385-BRCA1",
+                    "reference": f"{germline_data}/Homo_sapiens_assembly38.chr17.fasta",
+                    "f1r2TarGz_outputFilename": "generated.tar.gz",
+                    "germlineResource": f"{somatic_data}/af-only-gnomad.hg38.BRCA1.vcf.gz",
+                    "intervals": f"{germline_data}/BRCA1.hg38.bed",
+                    "nativePairHmmThreads": 4,
+                    "outputFilename": "NA24385-BRCA1.vcf.gz",
+                    "outputBamName": "mutect2.bam",
+                },
+                output=VcfTabix.basic_test(
+                    "out",
+                    11100,
+                    270,
+                )
+                + TextFile.basic_test(
+                    "stats", 33, "statistic\tvalue\ncallable\t81688.0", 2
+                )
+                + TarFileGz.basic_test(
+                    "f1f2r_out",
+                    11200,
+                )
+                + BamBai.basic_test(
+                    "bam",
+                    792870,
+                    21272,
+                    f"{somatic_data}/mutect2.flagstat",
+                    bam_md5="af959398091c55021cd5013e370df987",
+                    bai_md5="78f70f096a762d89980856e62f24d883",
+                ),
+            ),
+        ]

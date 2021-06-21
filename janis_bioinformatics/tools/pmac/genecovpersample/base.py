@@ -38,13 +38,13 @@ class GeneCoveragePerSampleBase(BioinformaticsTool, ABC):
             ),
             ToolInput(
                 "outputGeneFile",
-                Filename(extension=".txt"),
+                Filename(extension=".txt", suffix=".gene"),
                 prefix="--gene",
                 doc="Output gene file",
             ),
             ToolInput(
                 "outputRegionFile",
-                Filename(extension=".txt"),
+                Filename(extension=".txt", suffix=".region"),
                 prefix="--region",
                 doc="Output region file",
             ),
@@ -71,7 +71,7 @@ class GeneCoveragePerSampleBase(BioinformaticsTool, ABC):
         ]
 
     def bind_metadata(self):
-        self.metadata.creator = "Jiaan Yu"
+        self.metadata.dateCreated = datetime.datetime(2020, 4, 3)
         self.metadata.dateUpdated = datetime.datetime(2020, 4, 3)
         self.metadata.contributors = ["Jiaan Yu"]
         self.metadata.documentation = """usage: gene_coverage_per_sample.py [-h] [-l LIST] [-n NAME] [-p PATH] [-b BED]

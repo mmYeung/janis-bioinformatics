@@ -1,5 +1,13 @@
+import os
+from datetime import datetime
 from typing import List, Dict, Any
-from janis_core import get_value_for_hints_and_ordered_resource_tuple
+from janis_core import (
+    get_value_for_hints_and_ordered_resource_tuple,
+    ToolMetadata,
+    UnionType,
+)
+from janis_core.tool.test_classes import TTestCase
+
 from janis_bioinformatics.data_types import FastaWithDict, CompressedVcf
 from janis_bioinformatics.data_types import Vcf
 from janis_bioinformatics.tools import BioinformaticsTool
@@ -73,103 +81,49 @@ class SplitMultiAllele(BioinformaticsTool):
 
     def inputs(self) -> List[ToolInput]:
         return [
-            ToolInput("vcf", CompressedVcf(), position=3, shell_quote=False),
             ToolInput(
-                "reference", FastaWithDict(), prefix="-r", position=8, shell_quote=False
+                "vcf", UnionType(Vcf, CompressedVcf), position=1, shell_quote=False
+            ),
+            ToolInput(
+                "reference", FastaWithDict(), prefix="-r", position=4, shell_quote=False
             ),
             ToolInput(
                 "outputFilename",
-                Filename(prefix=InputSelector("vcf"), extension=".vcf", suffix=".norm"),
-                prefix=">",
-                position=10,
+                Filename(
+                    prefix=InputSelector("vcf", remove_file_extension=True),
+                    extension=".vcf",
+                    suffix=".norm",
+                ),
+                position=6,
+                prefix="-o",
                 shell_quote=False,
             ),
         ]
 
     def arguments(self):
         return [
-            ToolArgument("zcat", position=0, shell_quote=False),
-            ToolArgument("|", position=1, shell_quote=False),
-            ToolArgument(
-                "sed 's/ID=AD,Number=./ID=AD,Number=R/' <",
-                position=2,
-                shell_quote=False,
-            ),
-            ToolArgument("|", position=4, shell_quote=False),
-            ToolArgument("vt decompose -s - -o -", position=5, shell_quote=False),
-            ToolArgument("|", position=6, shell_quote=False),
-            ToolArgument("vt normalize -n -q - -o -", position=7, shell_quote=False),
-            ToolArgument("|", position=9, shell_quote=False),
-            ToolArgument(
-                "sed 's/ID=AD,Number=./ID=AD,Number=1/'", position=10, shell_quote=False
-            ),
+            ToolArgument("vt decompose -s ", position=0, shell_quote=False),
+            ToolArgument("| vt normalize -n -q - ", position=2, shell_quote=False),
         ]
 
     def outputs(self) -> List[ToolOutput]:
         return [ToolOutput("out", Vcf(), glob=InputSelector("outputFilename"))]
 
+    def bind_metadata(self):
+        return ToolMetadata(
+            contributors=["Michael Franklin", "Jiaan Yu"],
+            dateCreated=datetime(2019, 1, 18),
+            dateUpdated=datetime(2020, 11, 6),
+            documentation="",
+        )
+
     def doc(self):
         return """
-    VcfSplitMultiAllele.sh
-    
-    Currently stored at: '/researchers/jiaan.yu/WGS_pipeline/VcfSplitMultiAllele.sh’
-    
-    This CommandTool is an attempt to translate the shell script as a CommandTool.
-    
-    It uses the commands 'sed' and 'vt' (where $0: input, $1: output) as the following:
-    
-        > sed 's/ID=AD,Number=./ID=AD,Number=R/' < $1       |\
-            vt decompose -s - -o -                          |\
-            vt normalize -n -q - -o - -r $HumanREF          |\
-            sed 's/ID=AD,Number=./ID=AD,Number=1/' > $2
-    
+    Use vt to split multiallelic variants, and left-most align normalisation.
+    Original command:
+    vt decompose -s $input.vcf | vt normalize -n -q - -r $reference -o $output.vcf
+
     ========
-    
-    SED documentation:
-        Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...
-        
-          -n, --quiet, --silent
-                         suppress automatic printing of pattern space
-          -e script, --expression=script
-                         add the script to the commands to be executed
-          -f script-file, --file=script-file
-                         add the contents of script-file to the commands to be executed
-          --follow-symlinks
-                         follow symlinks when processing in place
-          -i[SUFFIX], --in-place[=SUFFIX]
-                         edit files in place (makes backup if SUFFIX supplied)
-          -c, --copy
-                         use copy instead of rename when shuffling files in -i mode
-          -b, --binary
-                         does nothing; for compatibility with WIN32/CYGWIN/MSDOS/EMX (
-                         open files in binary mode (CR+LFs are not treated specially))
-          -l N, --line-length=N
-                         specify the desired line-wrap length for the `l' command
-          --posix
-                         disable all GNU extensions.
-          -r, --regexp-extended
-                         use extended regular expressions in the script.
-          -s, --separate
-                         consider files as separate rather than as a single continuous
-                         long stream.
-          -u, --unbuffered
-                         load minimal amounts of data from the input files and flush
-                         the output buffers more often
-          -z, --null-data
-                         separate lines by NUL characters
-          --help
-                         display this help and exit
-          --version
-                         output version information and exit
-        
-        If no -e, --expression, -f, or --file option is given, then the first
-        non-option argument is taken as the sed script to interpret.  All
-        remaining arguments are names of input files; if no input files are
-        specified, then the standard input is read.
-        
-        GNU sed home page: <http://www.gnu.org/software/sed/>.
-        General help using GNU software: <http://www.gnu.org/gethelp/>.
-        
     VT decompose documentation:
         options : -s  smart decomposition [false]
               -d  debug [false]
@@ -195,6 +149,25 @@ class SplitMultiAllele(BioinformaticsTool):
               -r  reference sequence fasta file []
               -?  displays help 
         """.strip()
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "vcf": f"{remote_dir}/NA12878-BRCA1.haplotype_uncompressed.stdout",
+                    "reference": f"{remote_dir}/Homo_sapiens_assembly38.chr17.fasta",
+                },
+                output=Vcf.basic_test(
+                    "out",
+                    51462,
+                    221,
+                    ["GATKCommandLine"],
+                    "5e48624cb5ef379a7d6d39cec44bc856",
+                ),
+            )
+        ]
 
 
 if __name__ == "__main__":

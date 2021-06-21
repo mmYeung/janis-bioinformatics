@@ -1,3 +1,5 @@
+import operator
+import os
 from abc import ABC
 from typing import Dict, Any
 
@@ -15,10 +17,18 @@ from janis_core import (
     get_value_for_hints_and_ordered_resource_tuple,
     ToolMetadata,
 )
-from janis_unix import Tsv
+from janis_core.operators.logical import If
+from janis_core.operators.standard import JoinOperator, FirstOperator
+from janis_core.tool.test_classes import (
+    TTestCase,
+    TTestExpectedOutput,
+    TTestPreprocessor,
+)
+from janis_unix import Tsv, TextFile
 
-from janis_bioinformatics.data_types import BamBai
+from janis_bioinformatics.data_types import BamBai, Bam
 from ..gatk4toolbase import Gatk4ToolBase
+from janis_bioinformatics.tools import BioinformaticsTool
 
 CORES_TUPLE = [
     (
@@ -72,19 +82,26 @@ class Gatk4MarkDuplicatesBase(Gatk4ToolBase, ABC):
         return 8
 
     def inputs(self):
+        # Would be good to include this in the prefix:
+        #   If(InputSelector("bam").length().equals(1), InputSelector("bam")[0].basename(), None)
+
+        prefix = FirstOperator([InputSelector("outputPrefix"), "generated"])
         return [
             ToolInput(
                 "bam",
-                BamBai(),
+                Array(Bam),
                 prefix="-I",
                 position=10,
-                secondaries_present_as={".bai": "^.bai"},
+                # secondaries_present_as={".bai": "^.bai"},
                 doc="One or more input SAM or BAM files to analyze. Must be coordinate sorted.",
             ),
+            ToolInput("outputPrefix", String(optional=True)),
             ToolInput(
                 "outputFilename",
                 Filename(
-                    prefix=InputSelector("bam"), suffix=".markduped", extension=".bam"
+                    prefix=prefix,
+                    suffix=".markduped",
+                    extension=".bam",
                 ),
                 position=10,
                 prefix="-O",
@@ -92,12 +109,12 @@ class Gatk4MarkDuplicatesBase(Gatk4ToolBase, ABC):
             ),
             ToolInput(
                 "metricsFilename",
-                Filename(extension=".metrics.txt"),
+                Filename(prefix=prefix, suffix=".metrics", extension=".txt"),
                 position=10,
                 prefix="-M",
                 doc="The output file to write marked records to.",
             ),
-            *super(Gatk4MarkDuplicatesBase, self).inputs(),
+            *super().inputs(),
             *self.additional_args,
         ]
 
@@ -198,17 +215,18 @@ If desired, duplicates can be removed using the REMOVE_DUPLICATE and REMOVE_SEQU
             prefix="-CO",
             doc="Comment(s) to include in the output file's header.",
         ),
-        ToolInput(
-            "compressionLevel",
-            Int(optional=True),
-            prefix="--COMPRESSION_LEVEL",
-            position=11,
-            doc="Compression level for all compressed files created (e.g. BAM and GELI).",
-        ),
+        # ToolInput(
+        #     "compressionLevel",
+        #     Int(optional=True),
+        #     prefix="--COMPRESSION_LEVEL",
+        #     position=11,
+        #     doc="Compression level for all compressed files created (e.g. BAM and GELI).",
+        # ),
         ToolInput(
             "createIndex",
             Boolean(optional=True),
             prefix="--CREATE_INDEX",
+            default=True,
             position=11,
             doc="Whether to create a BAM index when writing a coordinate-sorted BAM file.",
         ),
@@ -276,4 +294,42 @@ If desired, duplicates can be removed using the REMOVE_DUPLICATE and REMOVE_SEQU
             doc="The --verbosity argument is an enumerated type (LogLevel), which can have "
             "one of the following values: [ERROR, WARNING, INFO, DEBUG]",
         ),
+        ToolInput(
+            "opticalDuplicatePixelDistance",
+            Int(optional=True),
+            prefix="--OPTICAL_DUPLICATE_PIXEL_DISTANCE",
+            doc="The maximum offset between two duplicate clusters in order to consider them optical duplicates. "
+            "The default is appropriate for unpatterned versions of the Illumina platform. For the patterned "
+            "flowcell models, 2500 is more appropriate. For other platforms and models, users should experiment "
+            "to find what works best.",
+        ),
     ]
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "bam": [
+                        f"{remote_dir}/NA12878-BRCA1.merged.bam",
+                    ],
+                    "javaOptions": ["-Xmx6G"],
+                    "maxRecordsInRam": 5000000,
+                    "createIndex": True,
+                    "tmpDir": "./tmp",
+                },
+                output=BamBai.basic_test(
+                    "out",
+                    2829000,
+                    3780,
+                    f"{remote_dir}/NA12878-BRCA1.markduped.bam.flagstat",
+                )
+                + TextFile.basic_test(
+                    "metrics",
+                    3700,
+                    "NA12878-BRCA1\t193\t9468\t164\t193\t46\t7\t1\t0.003137\t7465518",
+                    112,
+                ),
+            )
+        ]

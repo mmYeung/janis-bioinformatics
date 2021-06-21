@@ -1,13 +1,11 @@
 from .base import CloneFinderBase
 
 
-class CloneFinder_0_2(CloneFinderBase_0_2):
-    @staticmethod
-    def container():
+class CloneFinder_0_2(CloneFinderBase):
+    def container(self):
         return "shollizeck/clonefinder:0.2"
 
-    @staticmethod
-    def version():
+    def version(self):
         return "0.2"
 
 

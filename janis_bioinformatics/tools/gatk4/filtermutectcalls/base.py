@@ -1,3 +1,4 @@
+import os
 from abc import ABC
 from typing import Dict, Any
 
@@ -11,10 +12,12 @@ from janis_core import (
     get_value_for_hints_and_ordered_resource_tuple,
     Filename,
 )
+from janis_core.tool.test_classes import TTestCase
 from janis_unix.data_types import TextFile
 
 from janis_bioinformatics.data_types import VcfIdx, FastaWithDict, Vcf, VcfTabix
 from ..gatk4toolbase import Gatk4ToolBase
+from ... import BioinformaticsTool
 
 CORES_TUPLE = [
     # (CaptureType.key(), {
@@ -61,7 +64,13 @@ class Gatk4FilterMutectCallsBase(Gatk4ToolBase, ABC):
                 "reference", FastaWithDict, prefix="-R", doc="Reference sequence file"
             ),
             ToolInput(
-                "outputFilename", Filename(extension=".vcf.gz"), position=2, prefix="-O"
+                "outputFilename",
+                Filename(
+                    prefix=InputSelector("vcf", remove_file_extension=True),
+                    extension=".vcf.gz",
+                ),
+                position=2,
+                prefix="-O",
             ),
         ]
 
@@ -135,7 +144,29 @@ If given a --contamination-table file, e.g. results from CalculateContamination,
 """.strip(),
         )
 
-    def arguments(self):
+    def tests(self):
+        parent_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics"
+        germline_data = f"{parent_dir}/wgsgermline_data"
+        somatic_data = f"{parent_dir}/wgssomatic_data"
         return [
-            # ToolArgument(MemorySelector(prefix="-Xmx", suffix="G", default=8), prefix="--java-options", position=0)
+            TTestCase(
+                name="basic",
+                input={
+                    "javaOptions": ["-Xmx12G"],
+                    "contaminationTable": f"{somatic_data}/generated.txt.mutect2_contamination",
+                    "segmentationFile": f"{somatic_data}/generated.txt.mutect2_segments",
+                    "statsFile": f"{somatic_data}/NA24385-BRCA1.vcf.gz.stats",
+                    "readOrientationModel": f"{somatic_data}/generated.orientation.tar.gz",
+                    "vcf": f"{somatic_data}/NA24385-BRCA1.vcf.gz",
+                    "reference": f"{germline_data}/Homo_sapiens_assembly38.chr17.fasta",
+                },
+                output=VcfTabix.basic_test(
+                    "out",
+                    13339,
+                    274,
+                    182,
+                    ["GATKCommandLine"],
+                    "6cfd70dda8599a270978868166ab6545",
+                ),
+            ),
         ]

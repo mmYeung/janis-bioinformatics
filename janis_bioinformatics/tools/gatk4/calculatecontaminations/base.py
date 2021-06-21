@@ -1,3 +1,4 @@
+import os
 from abc import ABC
 from typing import Dict, Any
 
@@ -11,8 +12,11 @@ from janis_core import (
     ToolMetadata,
     get_value_for_hints_and_ordered_resource_tuple,
 )
+from janis_core.tool.test_classes import TTestCase
 
 from ..gatk4toolbase import Gatk4ToolBase
+from ... import BioinformaticsTool
+from janis_unix import TextFile
 
 CORES_TUPLE = [
     # (CaptureType.key(), {
@@ -52,7 +56,7 @@ class Gatk4CalculateContaminationBase(Gatk4ToolBase, ABC):
 
     def inputs(self):
         return [
-            *super(Gatk4CalculateContaminationBase, self).inputs(),
+            *super().inputs(),
             *Gatk4CalculateContaminationBase.additional_args,
             ToolInput(
                 "pileupTable",
@@ -62,11 +66,22 @@ class Gatk4CalculateContaminationBase(Gatk4ToolBase, ABC):
             ),
             ToolInput(
                 "segmentationFileOut",
-                Filename(),
+                Filename(
+                    prefix=InputSelector("pileupTable", remove_file_extension=True),
+                    extension=".mutect2_segments",
+                ),
                 prefix="--tumor-segmentation",
                 doc="Reference sequence file",
             ),
-            ToolInput("contaminationFileOut", Filename(), position=2, prefix="-O"),
+            ToolInput(
+                "contaminationFileOut",
+                Filename(
+                    prefix=InputSelector("pileupTable", remove_file_extension=True),
+                    extension=".mutect2_contamination",
+                ),
+                position=2,
+                prefix="-O",
+            ),
         ]
 
     def outputs(self):
@@ -105,12 +120,6 @@ class Gatk4CalculateContaminationBase(Gatk4ToolBase, ABC):
             doc="Tables containing contamination information.",
         ),
         ToolInput(
-            "segmentationFile",
-            File(optional=True),
-            prefix="--tumor-segmentation",
-            doc="Tables containing tumor segments' minor allele fractions for germline hets emitted by CalculateContamination",
-        ),
-        ToolInput(
             "statsFile",
             File(optional=True),
             prefix="--stats",
@@ -145,7 +154,26 @@ This tool borrows from ContEst by Cibulskis et al the idea of estimating contami
 """.strip(),
         )
 
-    def arguments(self):
+    def tests(self):
+        parent_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics"
+        somatic_data = f"{parent_dir}/wgssomatic_data"
         return [
-            # ToolArgument(MemorySelector(prefix="-Xmx", suffix="G", default=8), prefix="--java-options", position=0)
+            TTestCase(
+                name="basic",
+                input={
+                    "javaOptions": ["-Xmx6G"],
+                    "pileupTable": f"{somatic_data}/generated.txt",
+                    "segmentationFileOut": "generated.txt.mutect2_segments",
+                },
+                output=TextFile.basic_test(
+                    "contOut",
+                    59,
+                    "sample\tcontamination\terror\nNA12878-NA24385-mixture\t0.0\t0.0",
+                )
+                + TextFile.basic_test(
+                    "segOut",
+                    125,
+                    "contig\tstart\tend\tminor_allele_fraction\nchr17\t43045941\t43098543\t0.28541019662496847",
+                ),
+            ),
         ]

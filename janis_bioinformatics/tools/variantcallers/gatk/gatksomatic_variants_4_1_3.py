@@ -1,10 +1,15 @@
+import os
 from datetime import date
 
-from janis_core import String
-from janis_bioinformatics.tools import gatk4
-from janis_bioinformatics.data_types import FastaWithDict, BamBai, VcfTabix, Bed
+from janis_core import String, Array, WorkflowBuilder
+from janis_core.tool.test_classes import TTestCase
+from janis_unix.tools import UncompressArchive
+from janis_bioinformatics.tools import gatk4, BioinformaticsTool
+from janis_bioinformatics.data_types import FastaWithDict, BamBai, VcfTabix, Bed, Vcf
 from janis_bioinformatics.tools import BioinformaticsWorkflow
 from janis_bioinformatics.tools.common import SplitMultiAllele
+from janis_bioinformatics.tools.htslib import BGZipLatest, TabixLatest
+from janis_bioinformatics.tools.vcftools import VcfToolsvcftoolsLatest
 
 
 class GatkSomaticVariantCaller_4_1_3(BioinformaticsWorkflow):
@@ -21,10 +26,7 @@ class GatkSomaticVariantCaller_4_1_3(BioinformaticsWorkflow):
 
         self.input("normal_bam", BamBai)
         self.input("tumor_bam", BamBai)
-
-        self.input("normal_name", str)
-        self.input("tumor_name", str)
-
+        self.input("normal_name", String(optional=True))
         self.input(
             "intervals",
             Bed(optional=True),
@@ -32,90 +34,174 @@ class GatkSomaticVariantCaller_4_1_3(BioinformaticsWorkflow):
             "to null, then GATK will process the whole genome per each tool's spec",
         )
         self.input("reference", FastaWithDict)
+        self.input("gnomad", VcfTabix)
+        self.input("panel_of_normals", VcfTabix(optional=True))
+        self.input("output_bam_name", String(optional=True))
 
-        self.input("snps_dbsnp", VcfTabix)
-        self.input("snps_1000gp", VcfTabix)
-        self.input("known_indels", VcfTabix)
-        self.input("mills_indels", VcfTabix)
-
-        # we'll create the steps, and then assign their inputs later
+        # split normal and tumor bam
         self.step(
-            "base_recalibrator_normal",
-            gatk4.Gatk4BaseRecalibrator_4_1_3(),
-            ignore_missing=True,
+            "normal_split_bam",
+            self.process_subpipeline(bam=self.normal_bam, intervals=self.intervals),
         )
         self.step(
-            "base_recalibrator_tumor",
-            gatk4.Gatk4BaseRecalibrator_4_1_3(),
-            ignore_missing=True,
+            "tumor_split_bam",
+            self.process_subpipeline(bam=self.tumor_bam, intervals=self.intervals),
         )
 
-        self.step(
-            "apply_bqsr_normal", gatk4.Gatk4ApplyBqsr_4_1_3(), ignore_missing=True
-        )
-        self.step("apply_bqsr_tumor", gatk4.Gatk4ApplyBqsr_4_1_3(), ignore_missing=True)
-
-        # S1: BaseRecalibrator(s)
-
-        for inp, base_recal, applyBQSR in [
-            (self.normal_bam, self.base_recalibrator_normal, self.apply_bqsr_normal),
-            (self.tumor_bam, self.base_recalibrator_tumor, self.apply_bqsr_tumor),
-        ]:
-            base_recal["bam"] = inp
-            base_recal["intervals"] = self.intervals
-            base_recal["reference"] = self.reference
-            base_recal["knownSites"] = [
-                self.snps_dbsnp,
-                self.snps_1000gp,
-                self.known_indels,
-                self.mills_indels,
-            ]
-
-            applyBQSR["recalFile"] = base_recal.out
-            applyBQSR["bam"] = inp
-            applyBQSR["intervals"] = self.intervals
-            applyBQSR["reference"] = self.reference
-
+        # variant calling + learn read orientation model
         self.step(
             "mutect2",
             gatk4.GatkMutect2_4_1_3(
-                normalBams=self.apply_bqsr_normal.out,
-                tumorBams=self.apply_bqsr_tumor.out,
+                normalBams=[self.normal_split_bam.out],
+                tumorBams=[self.tumor_split_bam.out],
                 normalSample=self.normal_name,
-                # tumorName=self.tumorName,
                 intervals=self.intervals,
                 reference=self.reference,
+                germlineResource=self.gnomad,
+                panelOfNormals=self.panel_of_normals,
+                outputPrefix=self.normal_name,
+                outputBamName=self.output_bam_name,
             ),
         )
         self.step(
-            "split_multi_allele",
-            SplitMultiAllele(reference=self.reference, vcf=self.mutect2.out),
+            "learnorientationmodel",
+            gatk4.Gatk4LearnReadOrientationModelLatest(
+                f1r2CountsFiles=self.mutect2.f1f2r_out,
+            ),
         )
 
-        self.output("out", source=self.split_multi_allele.out)
+        # calculate contamination and segmentation
+        self.step(
+            "getpileupsummaries",
+            gatk4.Gatk4GetPileUpSummariesLatest(
+                bam=self.tumor_split_bam.out,
+                sites=self.gnomad,
+                intervals=self.intervals,
+            ),
+        )
+        self.step(
+            "calculatecontamination",
+            gatk4.Gatk4CalculateContaminationLatest(
+                pileupTable=self.getpileupsummaries.out,
+            ),
+        )
+        self.step(
+            "filtermutect2calls",
+            gatk4.Gatk4FilterMutectCallsLatest(
+                vcf=self.mutect2.out,
+                reference=self.reference,
+                segmentationFile=self.calculatecontamination.segOut,
+                contaminationTable=self.calculatecontamination.contOut,
+                readOrientationModel=self.learnorientationmodel.out,
+                statsFile=self.mutect2.stats,
+            ),
+        )
+
+        # normalise and filter "PASS" variants
+        self.step("uncompressvcf", UncompressArchive(file=self.filtermutect2calls.out))
+        self.step(
+            "splitnormalisevcf",
+            SplitMultiAllele(
+                vcf=self.uncompressvcf.out.as_type(Vcf), reference=self.reference
+            ),
+        )
+        self.step(
+            "filterpass",
+            VcfToolsvcftoolsLatest(
+                vcf=self.splitnormalisevcf.out,
+                removeFileteredAll=True,
+                recode=True,
+                recodeINFOAll=True,
+            ),
+        )
+
+        self.output("variants", source=self.filtermutect2calls.out)
+        self.output("out_bam", source=self.mutect2.bam)
+        self.output("out", source=self.filterpass.out)
+
+    @staticmethod
+    def process_subpipeline(**connections):
+        w = WorkflowBuilder("split_bam_subpipeline")
+
+        w.input("bam", BamBai)
+        w.input("intervals", Bed(optional=True))
+        w.step(
+            "split_bam", gatk4.Gatk4SplitReads_4_1_3(bam=w.bam, intervals=w.intervals)
+        )
+        w.output("out", source=w.split_bam.out)
+
+        return w(**connections)
 
     def bind_metadata(self):
         self.metadata.version = "4.1.3.0"
         self.metadata.dateCreated = date(2019, 2, 1)
-        self.metadata.dateUpdated = date(2019, 9, 13)
+        self.metadata.dateUpdated = date(2020, 6, 15)
 
-        self.metadata.contributors = ["Michael Franklin"]
+        self.metadata.contributors = ["Michael Franklin", "Jiaan Yu"]
         self.metadata.keywords = [
             "variants",
             "gatk",
             "gatk4",
             "variant caller",
             "somatic",
+            "paired",
         ]
         self.metadata.documentation = """
-        This is a VariantCaller based on the GATK Best Practice pipelines. It uses the GATK4 toolkit, specifically 4.0.12.0.
+        This is a VariantCaller based on the GATK Best Practice pipelines. It uses the GATK4 toolkit, specifically 4.0.12.0. Takes GATK Base Recalibrated Bam as input
 
         It has the following steps:
 
-        1. Base Recalibrator x 2
-        3. Mutect2
-        4. SplitMultiAllele
+        1. Mutect2
+        2. LearnOrientationModel
+        3. GetPileUpSummaries
+        4. CalculateContamination
+        5. FilterMutectCalls
+        6. Split and normliase vcf
+        7. Filter PASS variants
                 """.strip()
+
+    def tests(self):
+        parent_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics"
+        germline_data = f"{parent_dir}/wgsgermline_data"
+        somatic_data = f"{parent_dir}/wgssomatic_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "normal_bam": f"{somatic_data}/NA24385-BRCA1.markduped.recalibrated.bam",
+                    "tumor_bam": f"{somatic_data}/NA12878-NA24385-mixture.markduped.recalibrated.bam",
+                    "reference": f"{germline_data}/Homo_sapiens_assembly38.chr17.fasta",
+                    "gnomad": f"{somatic_data}/af-only-gnomad.hg38.BRCA1.vcf.gz",
+                    "intervals": f"{germline_data}/BRCA1.hg38.bed",
+                    "normal_name": "NA24385-BRCA1",
+                    "filterpass_removeFileteredAll": True,
+                    "filterpass_recode": True,
+                    "filterpass_recodeINFOAll": True,
+                    "output_bam_name": "mutect2.bam",
+                },
+                output=Vcf.basic_test(
+                    "out",
+                    33000,
+                    147,
+                    ["GATKCommandLine"],
+                    "c083775bc8c49397fb65ec12cd435688",
+                )
+                + VcfTabix.basic_test(
+                    "variants",
+                    13000,
+                    260,
+                    182,
+                    ["GATKCommandLine"],
+                    "6cfd70dda8599a270978868166ab6545",
+                )
+                + BamBai.basic_test(
+                    "out_bam",
+                    813200,
+                    21200,
+                    f"{somatic_data}/somatic_variant_caller.flagstat",
+                ),
+            ),
+        ]
 
 
 if __name__ == "__main__":

@@ -1,5 +1,14 @@
+import os
+import operator
 from abc import ABC
 from datetime import date
+
+from janis_core.tool.test_classes import (
+    TTestPreprocessor,
+    TTestExpectedOutput,
+    TTestCase,
+)
+
 
 from janis_core import (
     ToolInput,
@@ -14,12 +23,14 @@ from janis_core import (
     Stdout,
     InputSelector,
     Array,
+    ToolMetadata,
 )
-from janis_bioinformatics.data_types.bam import Bam
-from janis_bioinformatics.data_types import FastaWithDict
-from janis_bioinformatics.data_types import Sam
+from janis_core.types import UnionType
+
+from janis_bioinformatics.data_types import FastaWithDict, Sam, Bam, Cram
+
 from ..samtoolstoolbase import SamToolsToolBase
-from janis_core import ToolMetadata
+from janis_bioinformatics.tools.bioinformaticstoolbase import BioinformaticsTool
 
 
 class SamToolsViewBase(SamToolsToolBase, ABC):
@@ -34,7 +45,7 @@ class SamToolsViewBase(SamToolsToolBase, ABC):
         return [
             *super(SamToolsViewBase, self).inputs(),
             *SamToolsViewBase.additional_inputs,
-            ToolInput("sam", Sam(), position=10),
+            ToolInput("sam", UnionType(Sam(), Bam(), Cram()), position=10),
             ToolInput(
                 "reference",
                 FastaWithDict(optional=True),
@@ -45,7 +56,10 @@ class SamToolsViewBase(SamToolsToolBase, ABC):
             ),
             ToolInput(
                 "outputFilename",
-                Filename(extension=".bam"),
+                Filename(
+                    prefix=InputSelector("sam", remove_file_extension=True),
+                    extension=".bam",
+                ),
                 position=5,
                 prefix="-o",
                 doc="Output to FILE [stdout].",
@@ -277,3 +291,51 @@ Use of region specifications requires a coordinate-sorted and indexed input file
             doc="Number of BAM compression threads to use in addition to main thread [0].",
         ),
     ]
+
+    # def tests(self):
+    #     return [
+    #         TTestCase(
+    #             name="basic",
+    #             input={
+    #                 "sam": os.path.join(
+    #                     BioinformaticsTool.test_data_path(), "small.bam"
+    #                 ),
+    #             },
+    #             output=[
+    #                 TTestExpectedOutput(
+    #                     tag="out",
+    #                     preprocessor=TTestPreprocessor.FileMd5,
+    #                     operator=operator.eq,
+    #                     expected_value="54be668168b91eb1c04929b9305c1ac7",
+    #                 ),
+    #             ],
+    #         )
+    #     ]
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "sam": f"{remote_dir}/NA12878-BRCA1.bwamem.stdout",
+                    "reference": f"{remote_dir}/Homo_sapiens_assembly38.chr17.fasta",
+                    "threads": 16,
+                },
+                output=Bam.basic_test(
+                    "out",
+                    2740774,
+                    f"{remote_dir}/NA12878-BRCA1.bam.flagstat",
+                    "9a6af420f287df52a122ac723f41b535",
+                ),
+            ),
+            TTestCase(
+                name="minimal",
+                input={
+                    "sam": f"{remote_dir}/NA12878-BRCA1.bwamem.stdout",
+                    "reference": f"{remote_dir}/Homo_sapiens_assembly38.chr17.fasta",
+                    "threads": 16,
+                },
+                output=self.minimal_test(),
+            ),
+        ]

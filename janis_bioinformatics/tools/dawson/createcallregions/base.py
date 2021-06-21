@@ -1,16 +1,20 @@
-from janis_core import PythonTool, TOutput, File
-from typing import Dict, Optional, List, Any
+from datetime import datetime
+from typing import Dict, List, Any
 
-from janis_core import Array
+from janis_core import TOutput, Array, ToolMetadata
+
 from janis_bioinformatics.data_types import FastaFai
+from janis_bioinformatics.tools.bioinformaticstoolbase import BioinformaticsPythonTool
 
 
-class CreateCallRegions(PythonTool):
+class CreateCallRegions(BioinformaticsPythonTool):
+    def tool_provider(self):
+        return "Dawson Labs"
+
     @staticmethod
     def code_block(
         reference: FastaFai, regionSize: int, equalize: bool = True
     ) -> Dict[str, Any]:
-        from shutil import copyfile
         import csv
         import math
 
@@ -59,3 +63,11 @@ class CreateCallRegions(PythonTool):
 
     def friendly_name(self):
         return "Create genomic call regions"
+
+    def bind_metadata(self):
+        return ToolMetadata(
+            contributors=["Sebastian Hollizeck"],
+            dateCreated=datetime(2020, 6, 17),
+            dateUpdated=datetime(2020, 7, 16),
+            documentation="",
+        )

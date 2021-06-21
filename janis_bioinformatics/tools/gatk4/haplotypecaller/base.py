@@ -18,12 +18,20 @@ from janis_bioinformatics.data_types import (
     BamBai,
     Bed,
     FastaWithDict,
-    VcfIdx,
     VcfTabix,
     CompressedVcf,
 )
 from ..gatk4toolbase import Gatk4ToolBase
 from janis_core import ToolMetadata
+
+from janis_core.tool.test_classes import (
+    TTestPreprocessor,
+    TTestExpectedOutput,
+    TTestCase,
+)
+from ... import BioinformaticsTool
+import os
+import operator
 
 
 CORES_TUPLE = [
@@ -96,14 +104,17 @@ class Gatk4HaplotypeCallerBase(Gatk4ToolBase, ABC):
             ),
             ToolInput(
                 "outputFilename",
-                Filename(prefix=InputSelector("inputRead"), extension=".vcf.gz"),
+                Filename(
+                    prefix=InputSelector("inputRead", remove_file_extension=True),
+                    extension=".vcf.gz",
+                ),
                 position=8,
                 prefix="--output",
                 doc="File to which variants should be written",
             ),
             ToolInput(
                 "dbsnp",
-                VcfTabix(),
+                VcfTabix(optional=True),
                 position=7,
                 prefix="--dbsnp",
                 doc="(Also: -D) A dbSNP VCF file.",
@@ -114,17 +125,34 @@ class Gatk4HaplotypeCallerBase(Gatk4ToolBase, ABC):
                 prefix="--intervals",
                 doc="-L (BASE) One or more genomic intervals over which to operate",
             ),
+            ToolInput(
+                "outputBamName",
+                Filename(
+                    prefix=InputSelector("inputRead", remove_file_extension=True),
+                    extension=".bam",
+                ),
+                position=8,
+                prefix="-bamout",
+                doc="File to which assembled haplotypes should be written",
+            ),
         ]
 
     def outputs(self):
         return [
             ToolOutput(
                 "out",
-                CompressedVcf,
+                VcfTabix,
                 glob=InputSelector("outputFilename"),
                 doc="A raw, unfiltered, highly sensitive callset in VCF format. "
                 "File to which variants should be written",
-            )
+            ),
+            ToolOutput(
+                "bam",
+                BamBai,
+                glob=InputSelector("outputBamName"),
+                doc="File to which assembled haplotypes should be written",
+                secondaries_present_as={".bai": "^.bai"},
+            ),
         ]
 
     def bind_metadata(self):
@@ -165,6 +193,12 @@ to our recommendations as documented (https://software.broadinstitute.org/gatk/d
         )
 
     optional_args = [
+        ToolInput(
+            "pairHmmImplementation",
+            String(optional=True),
+            prefix="--pair-hmm-implementation",
+            doc="The PairHMM implementation to use for genotype likelihood calculations. The various implementations balance a tradeoff of accuracy and runtime. The --pair-hmm-implementation argument is an enumerated type (Implementation), which can have one of the following values: EXACT;ORIGINAL;LOGLESS_CACHING;AVX_LOGLESS_CACHING;AVX_LOGLESS_CACHING_OMP;EXPERIMENTAL_FPGA_LOGLESS_CACHING;FASTEST_AVAILABLE. Implementation:  FASTEST_AVAILABLE",
+        ),
         ToolInput(
             "activityProfileOut",
             String(optional=True),
@@ -426,4 +460,56 @@ to our recommendations as documented (https://software.broadinstitute.org/gatk/d
             prefix="--use-new-qual-calculator",
             doc="-new-qual If provided, we will use the new AF model instead of the so-called exact model",
         ),
+        ToolInput(
+            "gvcfGqBands",
+            Array(Int, optional=True),
+            prefix="-GQB",
+            prefix_applies_to_all_elements=True,
+            doc="(--gvcf-gq-bands) Exclusive upper bounds for reference confidence GQ"
+            " bands (must be in [1, 100] and specified in increasing order)",
+        ),
+        ToolInput(
+            "emitRefConfidence",
+            String(optional=True),
+            prefix="--emit-ref-confidence",
+            doc="(-ERC) Mode for emitting reference confidence scores (For Mutect2, this is a BETA feature)",
+        ),
+        ToolInput(
+            "dontUseSoftClippedBases",
+            Boolean(optional=True),
+            prefix="--dont-use-soft-clipped-bases",
+            doc="Do not analyze soft clipped bases in the reads",
+        ),
     ]
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "inputRead": f"{remote_dir}/NA12878-BRCA1.split.bam",
+                    "reference": f"{remote_dir}/Homo_sapiens_assembly38.chr17.fasta",
+                    "intervals": f"{remote_dir}/BRCA1.hg38.bed",
+                    "dbsnp": f"{remote_dir}/Homo_sapiens_assembly38.dbsnp138.BRCA1.vcf.gz",
+                    "javaOptions": ["-Xmx6G"],
+                    "pairHmmImplementation": "LOGLESS_CACHING",
+                },
+                output=VcfTabix.basic_test(
+                    "out",
+                    12800,
+                    270,
+                    214,
+                    ["GATKCommandLine"],
+                    "0224e24e5fc27286ee90c8d3c63373a7",
+                )
+                + BamBai.basic_test(
+                    "bam",
+                    596698,
+                    21272,
+                    f"{remote_dir}/NA12878-BRCA1.haplotyped.flagstat",
+                    "d83b4c0d8eab24a3be1cc6af4f827753",
+                    "b4bb4028b8679a3a635e3ad87126a097",
+                ),
+            )
+        ]

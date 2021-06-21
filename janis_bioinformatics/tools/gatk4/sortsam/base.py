@@ -1,3 +1,4 @@
+import os
 from abc import ABC
 from typing import Dict, Any
 
@@ -18,6 +19,9 @@ from janis_core import ToolMetadata
 
 from janis_bioinformatics.data_types import Bam, BamBai, FastaWithDict
 from ..gatk4toolbase import Gatk4ToolBase
+from janis_core.tool.test_classes import TTestCase
+
+from ... import BioinformaticsTool
 
 CORES_TUPLE = [
     (
@@ -97,7 +101,9 @@ class Gatk4SortSamBase(Gatk4ToolBase, ABC):
             ToolInput(
                 "outputFilename",
                 Filename(
-                    prefix=InputSelector("bam"), suffix=".sorted", extension=".bam"
+                    prefix=InputSelector("bam", remove_file_extension=True),
+                    suffix=".sorted",
+                    extension=".bam",
                 ),
                 position=10,
                 prefix="-O",
@@ -144,6 +150,7 @@ class Gatk4SortSamBase(Gatk4ToolBase, ABC):
             "createIndex",
             Boolean(optional=True),
             prefix="--CREATE_INDEX",
+            default=True,
             position=11,
             doc="Whether to create a BAM index when writing a coordinate-sorted BAM file.",
         ),
@@ -219,3 +226,41 @@ class Gatk4SortSamBase(Gatk4ToolBase, ABC):
             "one of the following values: [ERROR, WARNING, INFO, DEBUG]",
         ),
     ]
+
+    def tests(self):
+        remote_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics/wgsgermline_data"
+        return [
+            TTestCase(
+                name="basic",
+                input={
+                    "bam": f"{remote_dir}/NA12878-BRCA1.bam",
+                    "sortOrder": "coordinate",
+                    "createIndex": True,
+                    "maxRecordsInRam": 5000000,
+                    "tmpDir": "./tmp",
+                    "validationStringency": "SILENT",
+                    "javaOptions": ["-Xmx6G"],
+                },
+                output=BamBai.basic_test(
+                    "out",
+                    2826980,
+                    49688,
+                    f"{remote_dir}/NA12878-BRCA1.bam.flagstat",
+                    "15eb0f8168b42e8ce3ab8b9bc9199e3c",
+                    "a9042025f29f7a08e5f56ce8d11469a1",
+                ),
+            ),
+            TTestCase(
+                name="minimal",
+                input={
+                    "bam": f"{remote_dir}/NA12878-BRCA1.bam",
+                    "sortOrder": "coordinate",
+                    "createIndex": True,
+                    "maxRecordsInRam": 5000000,
+                    "tmpDir": "./tmp",
+                    "validationStringency": "SILENT",
+                    "javaOptions": ["-Xmx6G"],
+                },
+                output=self.minimal_test(),
+            ),
+        ]

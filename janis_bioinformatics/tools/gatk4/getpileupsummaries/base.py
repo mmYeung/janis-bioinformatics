@@ -1,3 +1,4 @@
+import os
 from abc import ABC
 from typing import Dict, Any
 
@@ -12,10 +13,17 @@ from janis_core import (
     String,
     get_value_for_hints_and_ordered_resource_tuple,
 )
+from janis_core.operators.standard import (
+    JoinOperator,
+    FilterNullOperator,
+    FirstOperator,
+)
+from janis_core.tool.test_classes import TTestCase
 from janis_unix import TextFile
 
-from janis_bioinformatics.data_types import BamBai, VcfIdx, Bed, VcfTabix
+from janis_bioinformatics.data_types import BamBai, Bed, VcfTabix, FastaWithDict
 from ..gatk4toolbase import Gatk4ToolBase
+from ... import BioinformaticsTool
 
 CORES_TUPLE = [
     # (CaptureType.key(), {
@@ -66,6 +74,9 @@ class Gatk4GetPileUpSummariesBase(Gatk4ToolBase, ABC):
                 position=0,
             ),
             ToolInput(
+                "sampleName", String(optional=True), doc="Used for naming purposes"
+            ),
+            ToolInput(
                 "sites",
                 VcfTabix(),
                 prefix="-V",
@@ -73,12 +84,40 @@ class Gatk4GetPileUpSummariesBase(Gatk4ToolBase, ABC):
             ),
             ToolInput(
                 "intervals",
-                VcfTabix(optional=True),
+                Bed(optional=True),
                 prefix="--intervals",
                 doc="-L (BASE) One or more genomic intervals over which to operate",
             ),
             ToolInput(
-                "pileupTableOut", Filename(extension=".txt"), position=1, prefix="-O"
+                "pileupTableOut",
+                Filename(
+                    prefix=JoinOperator(
+                        FilterNullOperator(
+                            [
+                                FirstOperator(
+                                    [InputSelector("sampleName"), "generated"]
+                                ),
+                                # If(
+                                #     IsDefined(InputSelector("intervals")),
+                                #     InputSelector(
+                                #         "intervals", remove_file_extension=True
+                                #     ),
+                                #     "",
+                                # ),
+                            ]
+                        ),
+                        ".",
+                    ),
+                    extension=".txt",
+                ),
+                position=1,
+                prefix="-O",
+            ),
+            ToolInput(
+                "reference",
+                FastaWithDict(optional=True),
+                prefix="-R",
+                doc="reference to use when decoding CRAMS",
             ),
         ]
 
@@ -124,7 +163,25 @@ The tool requires a common germline variant sites VCF, e.g. the gnomAD resource,
 """.strip(),
         )
 
-    def arguments(self):
+    def tests(self):
+        parent_dir = "https://swift.rc.nectar.org.au/v1/AUTH_4df6e734a509497692be237549bbe9af/janis-test-data/bioinformatics"
+        germline_data = f"{parent_dir}/wgsgermline_data"
+        somatic_data = f"{parent_dir}/wgssomatic_data"
         return [
-            # ToolArgument(MemorySelector(prefix="-Xmx", suffix="G", default=8), prefix="--java-options", position=0)
+            TTestCase(
+                name="basic",
+                input={
+                    "javaOptions": ["-Xmx48G"],
+                    "bam": [
+                        f"{somatic_data}/NA12878-NA24385-mixture.markduped.recalibrated.bam"
+                    ],
+                    "sites": f"{somatic_data}/af-only-gnomad.hg38.BRCA1.vcf.gz",
+                    "intervals": f"{germline_data}/BRCA1.hg38.bed",
+                },
+                output=TextFile.basic_test(
+                    "out",
+                    2592,
+                    md5="54672b8b13d46aaef25c56351c82a3f4",
+                ),
+            ),
         ]

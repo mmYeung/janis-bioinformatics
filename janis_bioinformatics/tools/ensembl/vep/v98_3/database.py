@@ -1,10 +1,14 @@
+from datetime import datetime
 from abc import ABC
 
-from janis_core import ToolInput, Boolean, Filename, String, Int
+from janis_core import ToolInput, Boolean, Filename, String, Int, ToolMetadata
 from .base import VepBase_98_3
 
 
 class VepDatabaseBase_98_3(VepBase_98_3, ABC):
+    def tool(self) -> str:
+        return "vep_database"
+
     def friendly_name(self):
         return "Vep (Database)"
 
@@ -79,3 +83,11 @@ class VepDatabaseBase_98_3(VepBase_98_3, ABC):
                 "specified registry file to connect. Not used by default",
             ),
         ]
+
+    def bind_metadata(self):
+        return ToolMetadata(
+            contributors=["Michael Franklin"],
+            dateCreated=datetime(2020, 2, 25),
+            dateUpdated=datetime(2020, 5, 7),
+            documentation="",
+        )
