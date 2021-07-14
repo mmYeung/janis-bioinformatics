@@ -4,9 +4,7 @@ from janis_core import File, DataType
 
 class Fasta(File):
     def __init__(self, optional=False):
-        super().__init__(
-            optional, extension=".fasta", alternate_extensions={".fa", ".fna"}
-        )
+        super().__init__(optional, extension=".fasta", alternate_extensions={".fa", ".fna"})
 
     @staticmethod
     def name():
@@ -133,6 +131,16 @@ class FastaGzWithIndexes(FastaGz):
     @staticmethod
     def secondary_files():
         return [*FastaGzBwa.secondary_files(), *FastaGzDict.secondary_files()]
+
+
+class FastaAlt(Fasta):
+    @staticmethod
+    def name():
+        return "FastaAlt"
+
+    @staticmethod
+    def secondary_files():
+        return ["^.alt"]
 
 
 if __name__ == "__main__":
