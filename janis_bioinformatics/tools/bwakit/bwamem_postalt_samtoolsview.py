@@ -113,7 +113,7 @@ class BwaMem_PostAlt_SamToolsView(BioinformaticsTool):
     def inputs(self) -> List[ToolInput]:
         return [
             ToolInput("reference", FastaWithDict(), position=2, shell_quote=False),
-            ToolInput("refereneAlt", FastaAlt(), position=7, shell_quote=False),
+            ToolInput("referenceAlt", FastaAlt(), position=7, shell_quote=False),
             ToolInput("reads", FastqGzPair, position=3, shell_quote=False),
             ToolInput(
                 "mates",
