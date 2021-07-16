@@ -125,7 +125,8 @@ class BwaMem_PostAlt_SamToolsView(BioinformaticsTool):
             ),
             ToolInput(
                 "outputFilename",
-                Filename(prefix=InputSelector("sampleName"), extension=".bam", shell_quote=False),
+                Filename(prefix=InputSelector("sampleName"), extension=".bam"),
+                shell_quote=False,
                 prefix="-o",
                 doc="output file name [stdout]",
             ),
