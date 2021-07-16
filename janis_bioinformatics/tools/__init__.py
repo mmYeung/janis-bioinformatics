@@ -8,6 +8,7 @@ from janis_bioinformatics.tools import (
     bcftools,
     bedtools,
     bwa,
+    bwakit,
     common,
     cellranger,
     cutadapt,
