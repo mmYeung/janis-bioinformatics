@@ -131,6 +131,12 @@ class BwaMem_PostAlt_SamToolsView(BioinformaticsTool):
                 doc="output file name [stdout]",
             ),
             ToolInput(
+                "sampleName",
+                String(),
+                doc="Used to construct the readGroupHeaderLine with format: "
+                "'@RG\\tID:{name}\\tSM:{name}\\tLB:{name}\\tPL:ILLUMINA'",
+            ),
+            ToolInput(
                 "platformTechnology",
                 String(optional=True),
                 doc="(ReadGroup: PL) Used to construct the readGroupHeaderLine, defaults: ILLUMINA",
